@@ -102,7 +102,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "inawo-terraform-state"  
+    bucket         = "Test-terraform-state"  
     key            = "digitalocean/terraform.tfstate"         
     region         = "us-east-1"                 
   }
