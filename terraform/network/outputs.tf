@@ -8,5 +8,6 @@ output "firewall_ids" {
 output "floating_ips" {
   description = "All floating IPs"
   value = {
+    "157_230_193_94" = digitalocean_floating_ip.floating_ip_157_230_193_94.ip_address
   }
 }

@@ -1,4 +1,12 @@
 terraform {
+  cloud {
+    organization = "davao-water"
+
+    workspaces {
+      name = "do-infra-main"
+    }
+  }
+
   required_providers {
     digitalocean = {
       source  = "digitalocean/digitalocean"
@@ -8,5 +16,5 @@ terraform {
 }
 
 provider "digitalocean" {
-  # Token set via DIGITALOCEAN_TOKEN environment variable
+  token = var.do_token
 }

@@ -1,5 +1,5 @@
 variable "region" {
-  description = "DigitalOcean region"
+  description = "Database region"
   type        = string
-  default     = "fra1"
+  default     = "sgp1"
 }
