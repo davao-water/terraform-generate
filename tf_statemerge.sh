@@ -87,34 +87,19 @@ module "project" {
 }
 EOF
 
-# Copy providers.tf
+# Copy providers.tf (ROOT)
 cat > providers.tf << 'EOF'
 terraform {
   required_providers {
     digitalocean = {
       source  = "digitalocean/digitalocean"
-      version = "2.50.0" 
+      version = "2.50.0"
     }
-    aws = {
-      source  = "hashicorp/aws"
-      version = "5.94.1"
-    }
-  }
-
-  backend "s3" {
-    bucket         = "Test-terraform-state"  
-    key            = "digitalocean/terraform.tfstate"         
-    region         = "us-east-1"                 
   }
 }
 
 provider "digitalocean" {
   # Token set via DIGITALOCEAN_TOKEN environment variable
-}
-
-provider "aws" {
-  region = "us-east-1"
-  # AWS credentials should be set via environment variables
 }
 EOF
 
