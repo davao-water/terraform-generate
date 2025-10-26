@@ -4,5 +4,5 @@ resource "digitalocean_database_cluster" "db_db_postgresql_sgp1_06464" {
   version    = "17"
   region     = "sgp1"
   node_count = 1
-  size       = "db-s-1vcpu-1gb"
+  size       = "null"
 }

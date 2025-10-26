@@ -16,6 +16,7 @@ module "storage" {
 
 module "project" {
   source = "./project"
+
   depends_on = [
     module.compute,
     module.database,
