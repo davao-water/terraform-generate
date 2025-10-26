@@ -35,7 +35,7 @@ if ! command -v terraform &>/dev/null; then
   exit 1
 fi
 
-# Create terraform/ structure and enter it
+# Create terraform/ structure and go there
 mkdir -p terraform/{compute,database,network,storage,project}
 cd terraform
 
@@ -61,11 +61,9 @@ terraform {
   }
 }
 
-# We define do_token here so Terraform always has this var.
-# Locally:
-#   export TF_VAR_do_token="dop_v1_xxx"
-# Terraform Cloud:
-#   set workspace variable do_token (sensitive=true)
+# var.do_token is provided either by:
+#   - Locally: export TF_VAR_do_token="dop_v1_xxx"
+#   - Terraform Cloud: workspace variable do_token (sensitive=true)
 variable "do_token" {
   description = "DigitalOcean API token"
   type        = string
@@ -78,7 +76,7 @@ provider "digitalocean" {
 }
 EOF
 
-# Minimal providers.tf for each module (no backend stanza here)
+# Minimal providers.tf per module
 for dir in compute database network storage project; do
   cat > $dir/providers.tf << 'EOF'
 terraform {
@@ -126,7 +124,7 @@ output "floating_ips" {
 }
 EOF
 
-# Root main.tf - wire modules
+# Root main.tf
 cat > main.tf << 'EOF'
 module "compute" {
   source = "./compute"
@@ -157,7 +155,7 @@ module "project" {
 EOF
 
 #######################################
-# Helper for Terraform-style safe names
+# Helper for Terraform-safe names
 #######################################
 sanitize_name() {
   # lowercase, replace non-alnum with underscores
@@ -165,7 +163,7 @@ sanitize_name() {
 }
 
 #######################################
-# 2. INIT TERRAFORM (hooks up to Terraform Cloud backend)
+# 2. INIT TERRAFORM (connects to TFC backend)
 #######################################
 echo -e "\n${GREEN}Initializing Terraform...${NC}"
 terraform init
@@ -200,7 +198,6 @@ output "droplet_ips" {
   value = {
 EOF
 
-  # Each droplet becomes an output entry
   for i in $(seq 0 $(("$droplet_count" - 1))); do
     droplet_name=$(echo "$droplet_json" | jq -r ".[$i].name")
     safe_name=$(sanitize_name "$droplet_name")
@@ -214,7 +211,6 @@ EOF
 
   echo -e "\n${GREEN}Generating droplet resource files...${NC}"
 
-  # Generate per-droplet tf + import into state
   for i in $(seq 0 $(("$droplet_count" - 1))); do
     droplet_id=$(echo "$droplet_json" | jq -r ".[$i].id")
     droplet_name=$(echo "$droplet_json" | jq -r ".[$i].name")
@@ -222,22 +218,22 @@ EOF
     size_slug=$(echo "$droplet_json" | jq -r ".[$i].size_slug")
     image_slug=$(echo "$droplet_json" | jq -r ".[$i].image.slug")
 
-    # backups = true if there are any backup IDs
+    # backups enabled? -> backup_ids length > 0
     backups=$(echo "$droplet_json" \
       | jq -r ".[$i].backup_ids | length > 0")
 
-    # monitoring is true if "monitoring" is in features[]
+    # monitoring enabled? -> features includes "monitoring"
     monitoring=$(echo "$droplet_json" \
       | jq -r ".[$i].features | index(\"monitoring\") | if . == null then false else true end")
 
-    # ipv6 is true if "ipv6" is in features[]
+    # ipv6 enabled? -> features includes "ipv6"
     has_ipv6=$(echo "$droplet_json" \
       | jq -r ".[$i].features | index(\"ipv6\") | if . == null then false else true end")
 
-    # Keep the droplet bound to the same VPC
+    # VPC
     vpc_uuid=$(echo "$droplet_json" | jq -r ".[$i].vpc_uuid")
 
-    # tags array -> valid HCL/JSON list like ["dokploy","whatever"]
+    # tags array -> valid HCL list like ["dokploy","foo"]
     tags_json=$(echo "$droplet_json" | jq -c ".[$i].tags")
 
     safe_name=$(sanitize_name "$droplet_name")
@@ -252,34 +248,29 @@ resource "digitalocean_droplet" "droplet_${safe_name}" {
   image  = "${image_slug}"
 EOF
 
-    # Only emit backups if DO actually has backups enabled
     if [ "$backups" = "true" ]; then
       echo "  backups = true" >> "compute/droplet_${safe_name}.tf"
     fi
 
-    # Only emit monitoring if it's enabled in DO
+    # must be true in config if it's enabled in DO, or Terraform will want to recreate
     if [ "$monitoring" = "true" ]; then
       echo "  monitoring = true" >> "compute/droplet_${safe_name}.tf"
     fi
 
-    # Only emit ipv6 if enabled
     if [ "$has_ipv6" = "true" ]; then
       echo "  ipv6 = true" >> "compute/droplet_${safe_name}.tf"
     fi
 
-    # Only emit vpc_uuid if present
     if [ "$vpc_uuid" != "null" ] && [ -n "$vpc_uuid" ]; then
       echo "  vpc_uuid = \"${vpc_uuid}\"" >> "compute/droplet_${safe_name}.tf"
     fi
 
-    # Only emit tags if we actually have tags
     if [ "$tags_json" != "[]" ] && [ "$tags_json" != "null" ]; then
       echo "  tags = ${tags_json}" >> "compute/droplet_${safe_name}.tf"
     fi
 
     echo "}" >> "compute/droplet_${safe_name}.tf"
 
-    # Import into state unless it's already present
     tf_addr="module.compute.digitalocean_droplet.droplet_${safe_name}"
     if terraform state list | grep -q "^${tf_addr}$"; then
       echo "  -> Skipping import for $droplet_name (already in state)"
@@ -345,6 +336,8 @@ EOF
 
     safe_name=$(sanitize_name "$db_name")
 
+    # NOTE: we ARE emitting size again because provider requires it.
+    # This may still show drift in future plans ("size -> null"), but it keeps plan from crashing.
     cat > "database/db_${safe_name}.tf" << EOF
 resource "digitalocean_database_cluster" "db_${safe_name}" {
   name       = "${db_name}"
@@ -420,10 +413,8 @@ EOF
 
     echo "}" >> "network/floating_ip_${safe_ip_name}.tf"
 
-    # add to outputs
     echo "    \"${safe_ip_name}\" = digitalocean_floating_ip.floating_ip_${safe_ip_name}.ip_address" >> network/outputs.tf
 
-    # import into state
     tf_addr="module.network.digitalocean_floating_ip.floating_ip_${safe_ip_name}"
     if terraform state list | grep -q "^${tf_addr}$"; then
       echo "  -> Skipping import for Floating IP ${ip} (already in state)"
@@ -434,7 +425,7 @@ EOF
   done
 fi
 
-# Close floating_ips map
+# Close floating_ips block in outputs.tf
 cat >> network/outputs.tf << 'EOF'
   }
 }
@@ -469,6 +460,7 @@ resource "digitalocean_firewall" "firewall_${safe_fw_name}" {
   name = "${fw_name}"
 EOF
 
+    # Attach to droplets if any
     if [ "$(echo "$fw_droplets_json" | jq 'length')" -gt 0 ]; then
       echo "  droplet_ids = [" >> "network/firewall_${safe_fw_name}.tf"
       echo "$fw_droplets_json" | jq -r '.[]' | while read did; do
@@ -482,16 +474,22 @@ EOF
     if [ "$in_count" -gt 0 ]; then
       for j in $(seq 0 $(("$in_count" - 1))); do
         proto=$(echo "$inbound_rules" | jq -r ".[$j].protocol")
-        ports=$(echo "$inbound_rules" | jq -r ".[$j].ports // empty")
+        ports_raw=$(echo "$inbound_rules" | jq -r ".[$j].ports // \"\"")
+
+        # normalize port range:
+        # - if empty/null/"all": -> "0"
+        if [ "$ports_raw" = "" ] || [ "$ports_raw" = "null" ] || [ "$ports_raw" = "all" ]; then
+          normalized_ports="0"
+        else
+          normalized_ports="$ports_raw"
+        fi
 
         src_addrs=$(echo "$inbound_rules" | jq -c ".[$j].sources.addresses // []")
         src_tags=$(echo "$inbound_rules" | jq -c ".[$j].sources.tags // []")
 
         echo "  inbound_rule {" >> "network/firewall_${safe_fw_name}.tf"
         echo "    protocol   = \"${proto}\"" >> "network/firewall_${safe_fw_name}.tf"
-        if [ -n "$ports" ] && [ "$ports" != "null" ]; then
-          echo "    port_range = \"${ports}\"" >> "network/firewall_${safe_fw_name}.tf"
-        fi
+        echo "    port_range = \"${normalized_ports}\"" >> "network/firewall_${safe_fw_name}.tf"
 
         if [ "$(echo "$src_addrs" | jq 'length')" -gt 0 ]; then
           echo "    source_addresses = [" >> "network/firewall_${safe_fw_name}.tf"
@@ -518,16 +516,20 @@ EOF
     if [ "$out_count" -gt 0 ]; then
       for j in $(seq 0 $(("$out_count" - 1))); do
         proto=$(echo "$outbound_rules" | jq -r ".[$j].protocol")
-        ports=$(echo "$outbound_rules" | jq -r ".[$j].ports // empty")
+        ports_raw=$(echo "$outbound_rules" | jq -r ".[$j].ports // \"\"")
+
+        if [ "$ports_raw" = "" ] || [ "$ports_raw" = "null" ] || [ "$ports_raw" = "all" ]; then
+          normalized_ports="0"
+        else
+          normalized_ports="$ports_raw"
+        fi
 
         dst_addrs=$(echo "$outbound_rules" | jq -c ".[$j].destinations.addresses // []")
         dst_tags=$(echo "$outbound_rules" | jq -c ".[$j].destinations.tags // []")
 
         echo "  outbound_rule {" >> "network/firewall_${safe_fw_name}.tf"
         echo "    protocol   = \"${proto}\"" >> "network/firewall_${safe_fw_name}.tf"
-        if [ -n "$ports" ] && [ "$ports" != "null" ]; then
-          echo "    port_range = \"${ports}\"" >> "network/firewall_${safe_fw_name}.tf"
-        fi
+        echo "    port_range = \"${normalized_ports}\"" >> "network/firewall_${safe_fw_name}.tf"
 
         if [ "$(echo "$dst_addrs" | jq 'length')" -gt 0 ]; then
           echo "    destination_addresses = [" >> "network/firewall_${safe_fw_name}.tf"
@@ -551,7 +553,6 @@ EOF
 
     echo "}" >> "network/firewall_${safe_fw_name}.tf"
 
-    # Import firewall into state
     tf_addr="module.network.digitalocean_firewall.firewall_${safe_fw_name}"
     if terraform state list | grep -q "^${tf_addr}$"; then
       echo "  -> Skipping import for firewall ${fw_name} (already in state)"
@@ -563,7 +564,7 @@ EOF
 fi
 
 #######################################
-# 6. STORAGE (Volumes, Attachments, Snapshots)
+# 6. STORAGE (volumes, attachments, snapshots)
 #######################################
 echo -e "\n${GREEN}Importing Volumes...${NC}"
 
@@ -592,7 +593,6 @@ output "volume_ids" {
   value = {
 EOF
 
-  # Snapshot list (volume snapshots only)
   snap_json=$(doctl compute snapshot list --output json | jq '[ .[] | select(.resource_type=="volume") ]')
   snap_count=$(echo "$snap_json" | jq 'length')
 
@@ -605,9 +605,12 @@ EOF
     vol_region=$(echo "$vol_json" | jq -r ".[$i].region.slug")
     vol_droplets_json=$(echo "$vol_json" | jq -c ".[$i].droplet_ids // []")
 
+    safe_name=$(sanitize_name("$vol_name"))
+
+    # fix: bash function call needs command substitution correctly
     safe_name=$(sanitize_name "$vol_name")
 
-    # skip k8s PVC volumes
+    # skip DigitalOcean k8s PVC volumes (they are managed by DO k8s, not you)
     if echo "$vol_name" | grep -q "^pvc-"; then
       echo "Skipping Kubernetes-managed volume: $vol_name ($vol_id)"
       continue
@@ -621,7 +624,6 @@ resource "digitalocean_volume" "volume_${safe_name}" {
 }
 EOF
 
-    # Attach volume if droplets are attached
     if [ "$(echo "$vol_droplets_json" | jq 'length')" -gt 0 ]; then
       echo "$vol_droplets_json" | jq -r '.[]' | while read did; do
         attach_name="${safe_name}_${did}"
@@ -634,10 +636,8 @@ EOF
       done
     fi
 
-    # add to outputs
     echo "    \"${safe_name}\" = digitalocean_volume.volume_${safe_name}.id" >> storage/outputs.tf
 
-    # import volume
     tf_addr="module.storage.digitalocean_volume.volume_${safe_name}"
     if terraform state list | grep -q "^${tf_addr}$"; then
       echo "  -> Skipping import for volume $vol_name (already in state)"
@@ -646,7 +646,6 @@ EOF
       terraform import "$tf_addr" "$vol_id"
     fi
 
-    # import each volume attachment
     if [ "$(echo "$vol_droplets_json" | jq 'length')" -gt 0 ]; then
       echo "$vol_droplets_json" | jq -r '.[]' | while read did; do
         attach_name="${safe_name}_${did}"
@@ -671,7 +670,6 @@ output "snapshot_ids" {
   value = {
 EOF
 
-  # snapshots
   if [ "$snap_count" -gt 0 ]; then
     echo -e "\n${GREEN}Generating volume snapshot resource files...${NC}"
     for i in $(seq 0 $(("$snap_count" - 1))); do
@@ -701,7 +699,7 @@ EOF
     echo "No volume snapshots found."
   fi
 
-  # close snapshot_ids block
+  # close snapshot_ids map
   cat >> storage/outputs.tf << 'EOF'
   }
 }
@@ -711,7 +709,6 @@ fi
 #######################################
 # 7. DUMMY EMPTY RESOURCES
 #######################################
-# keep module dirs from being "empty"
 touch compute/empty_resource.tf database/empty_resource.tf network/empty_resource.tf storage/empty_resource.tf
 
 #######################################
@@ -726,9 +723,9 @@ echo "1. In Terraform Cloud workspace 'do-infra-main':"
 echo "   - Ensure workspace var do_token (Sensitive=true) is set with your DigitalOcean API token."
 echo "2. Locally, before running this script:"
 echo "   export TF_VAR_do_token=\"<your DO API token>\""
-echo "3. Run: terraform plan"
-echo "   After this script's fixes:"
-echo "   - Droplet should NOT show 'must be replaced' because monitoring/backups/ipv6/vpc_uuid/tags now match DO."
-echo "   - Floating IP should NOT show 'will be destroyed'."
-echo "   - Firewall should only show harmless in-place diffs."
-echo "4. Review generated *.tf and then commit/push (no secrets in repo)."
+echo "3. After generation, run: terraform plan"
+echo "   Expected now:"
+echo "   - Droplet: no destroy/recreate"
+echo "   - Firewall: no in-place diff about port_range \"0\" vs \"all\""
+echo "   - DB: may show a harmless in-place update around size, but plan will NOT fail"
+echo "4. Commit the generated terraform/ dir (no secrets). That becomes your IaC baseline."

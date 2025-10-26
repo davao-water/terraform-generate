@@ -15,11 +15,9 @@ terraform {
   }
 }
 
-# We define do_token here so Terraform always has this var.
-# Locally:
-#   export TF_VAR_do_token="dop_v1_xxx"
-# Terraform Cloud:
-#   set workspace variable do_token (sensitive=true)
+# var.do_token is provided either by:
+#   - Locally: export TF_VAR_do_token="dop_v1_xxx"
+#   - Terraform Cloud: workspace variable do_token (sensitive=true)
 variable "do_token" {
   description = "DigitalOcean API token"
   type        = string
