@@ -1,7 +1,7 @@
-resource "digitalocean_droplet" "droplet_ubuntu_bca02" {
-  name   = "ubuntu-bca02"
+resource "digitalocean_droplet" "droplet_ubuntu_staging" {
+  name   = "ubuntu-staging"
   region = "sgp1"
-  size   = "s-2vcpu-2gb"
+  size   = "s-1vcpu-1gb"
   image  = "ubuntu-22-04-x64"
   backups = true
   monitoring = true
