@@ -1,12 +1,10 @@
 terraform {
   cloud {
     organization = "davao-water"
-
     workspaces {
       name = "do-infra-main"
     }
   }
-
   required_providers {
     digitalocean = {
       source  = "digitalocean/digitalocean"
@@ -15,9 +13,6 @@ terraform {
   }
 }
 
-# var.do_token is provided either by:
-#   - Locally: export TF_VAR_do_token="dop_v1_xxx"
-#   - Terraform Cloud: workspace variable do_token (sensitive=true)
 variable "do_token" {
   description = "DigitalOcean API token"
   type        = string

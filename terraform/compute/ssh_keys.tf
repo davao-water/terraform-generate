@@ -1,5 +1,5 @@
-# Auto-generated from doctl list; these are LOOKUPS (data sources), not managed resources.
-# We do NOT attach ssh_keys to existing droplets to avoid forced rebuilds.
+# DO SSH keys as data sources (looked up by name).
+# We attach all fingerprints on CREATE via local.ssh_key_fingerprints, but ignore later to avoid replacements.
 
 data "digitalocean_ssh_key" "key_ryanroman_desktop_t9gj6ol_50859647" {
   name = "ryanroman@DESKTOP-T9GJ6OL"
@@ -44,6 +44,7 @@ locals {
       data_id     = data.digitalocean_ssh_key.key_ryanr_desktop_c2okquy_50730179.id
     }
   }
+  ssh_key_fingerprints = [for _, v in local.do_ssh_keys : v.fingerprint]
 }
 
 output "ssh_keys_by_safe_name" {
@@ -53,7 +54,7 @@ output "ssh_keys_by_safe_name" {
 }
 
 output "ssh_key_fingerprints" {
-  description = "Map: safe_name => fingerprint"
-  value       = { for k, v in local.do_ssh_keys : k => v.fingerprint }
+  description = "List of DO SSH key fingerprints"
+  value       = local.ssh_key_fingerprints
   sensitive   = true
 }

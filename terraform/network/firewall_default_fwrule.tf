@@ -1,8 +1,5 @@
 resource "digitalocean_firewall" "firewall_default_fwrule" {
   name = "Default-FWRule"
-  droplet_ids = [
-    518935096,
-  ]
   inbound_rule {
     protocol   = "icmp"
     port_range = "0"

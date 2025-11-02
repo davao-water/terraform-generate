@@ -3,7 +3,6 @@ variable "environment" {
   type        = string
   default     = "production"
 }
-
 variable "region" {
   description = "Default DigitalOcean region"
   type        = string
